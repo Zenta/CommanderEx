@@ -23,10 +23,18 @@
  
  */
 
+#include <EEPROM.h>
+
+//=============================================================================
+// Options
+//=============================================================================
+#define CHECK_AND_CONFIG_XBEE
+#define OPT_ORIG_RANGE_COMPAT
+#define DEBUG
+
 //=============================================================================
 // Defines
 //=============================================================================
-#define DEBUG
 
 #define RIGHT_V   0
 #define RIGHT_H   1
@@ -48,6 +56,12 @@
 
 #define USER      10
 
+// These values are used as part of the XBee Configure code and can be changed
+// to whatever values you prefer. 
+#define DEFAULT_MY 0x102  // Swap My/DL on 2nd unit
+#define DEFAULT_DL 0x101
+#define DEFAULT_ID 0x3332
+
 static const boolean  g_afAnalogInvert[] = {    // some of our analog values are inverted from what we want
   true,false,true,false};       // Do we use the mid points when we normalize
 static const word g_awAnalogMins[] = {
@@ -55,7 +69,13 @@ static const word g_awAnalogMins[] = {
 static const word g_awAnalogMaxs[] = {
   1023*8,1023*8,1023*8,1023*8}; // dito
 
+#ifdef OPT_ORIG_RANGE_COMPAT      
+uint8_t g_fLimitRange = false;
+#endif  
+
+
 #define FRAME_LEN 33         // 30hz
+#define XBEE_HAS_BEEN_INIT  0x01  // Some non-zero non-oxff that says we have been init.
 //=============================================================================
 // Global Variables
 //=============================================================================
@@ -81,11 +101,15 @@ unsigned long ltime;         // last time we sent data
 int iLoopCnt;
 
 void setup(){
-  Serial.begin(38400);
+  // I init buttons first as my check state of some buttons in other init code to allow special case
+  // init of the system.
+  InitButtons();
+
+  InitXBee();
+
   ltime = millis();
   pinMode(USER,OUTPUT);    // user LED
 
-  InitButtons();
   InitJoysticks();          // Initialize the joysticks.
 
   iLoopCnt = 0;
@@ -120,7 +144,7 @@ void loop(){
       Serial.print(g_bButtons, HEX);
       Serial.print(" : ");
       for (i=0; i < NUMANALOGS; i++)  {
-        Serial.print(g_abJoyVals[i], DEC);
+        Serial.print((int)g_abJoyVals[i]-128, DEC);
         Serial.print(" ");
       }
       Serial.println(bChksum, DEC);
@@ -149,6 +173,13 @@ void InitJoysticks(void) {          // Initialize the joysticks.
   byte i;
   word w;
   // Later may need to read in Min/Max values for each of the Anlog inputs from EEPROM.
+#ifdef OPT_ORIG_RANGE_COMPAT      
+  if(digitalRead(BUT_L6) == LOW) {
+    g_fLimitRange = true;
+  }
+
+#endif  
+
 
   // We need to prefill our array of raw items and sums.  The first read for each analog
   // may be trash, but that will get removed on our first real read.
@@ -228,6 +259,10 @@ void ReadJoysticks() {          // Initialize the joysticks.
 
     if (g_afAnalogInvert[i]) 
       g_abJoyVals[i] = 255 - g_abJoyVals[i];
+#ifdef OPT_ORIG_RANGE_COMPAT      
+    if (g_fLimitRange)
+      g_abJoyVals[i] = map(g_abJoyVals[i], 0, 254, 128-102, 128+102);
+#endif
   }
 }
 //=============================================================================
@@ -245,6 +280,77 @@ void ReadButtons(void)
   if(digitalRead(BUT_RT) == LOW) g_bButtons += 64;
   if(digitalRead(BUT_LT) == LOW) g_bButtons += 128;
 }
+
+void InitXBee() 
+{
+  // Verify the XBee is configured properly.  See if we can talk to it at 38400
+  char ab[10];
+  Serial.begin(38400);
+
+#ifdef CHECK_AND_CONFIG_XBEE
+  // First see if we are to bypass the Init code.  Once we sucessfully have
+  // configured the xbee, we write a value to the EEPROM, which we check against
+  // next time.  This keeps us from having to wait several seconds, on later 
+  // uses of the Commander.  But if R1 is pressed duing init, disregard the EEPROM
+  // and check again.
+  if(digitalRead(BUT_R1) != LOW) {
+    if (EEPROM.read(0) == XBEE_HAS_BEEN_INIT)
+      return;  // EEPROM says we have been init.
+  }
+
+  while (Serial.read() != -1)
+    ;  // flush anything out...
+  delay(2000);
+  Serial.print("+++");
+  Serial.setTimeout(2200);  // little over 2 seconds
+  if (Serial.readBytesUntil('\r', ab, 10) > 0) {
+    // Note: we could check a few more things here if we run into issues.  Like: MY!=0
+    // or MY != DL
+    EEPROM.write(0, XBEE_HAS_BEEN_INIT);  // Write to the eeprom that we have been init.
+    return;  // It is already at 38400, so assume already init.
+  }
+  // Failed, so check to see if we can communicate at 9600
+  Serial.end();
+  Serial.begin(9600);
+  while (Serial.read() != -1)
+    ;  // flush anything out...
+
+  delay(2000);
+  Serial.print("+++");
+  if (Serial.readBytesUntil('\r', ab, 10) == 0) {
+    // failed blink fast
+    for(;;) {
+      digitalWrite(USER, !digitalRead(USER));
+      delay(50);
+    }  // loop forever
+  }
+
+  // So we entered command mode, lets set the appropriate stuff. 
+  Serial.println("ATBD 5");  // 38400
+  Serial.print("ATID ");
+  Serial.println(DEFAULT_ID, HEX);
+
+  Serial.print("ATMY ");
+  Serial.println(DEFAULT_MY, HEX);
+
+  Serial.println("ATDH 0");
+  Serial.print("ATDL ");
+  Serial.println(DEFAULT_DL, HEX);
+
+  Serial.println("ATWR");	// Write out the changes
+  Serial.println("ATCN");	// and exit command mode
+  Serial.flush();              // make sure all has been output
+  // lets do a quick and dirty test
+  delay(250);  // Wait a bit for responses..
+  while(Serial.read() != -1)
+    ;   // flush all the input.
+
+  Serial.begin(38400);
+#endif  
+}
+
+
+
 
 
 

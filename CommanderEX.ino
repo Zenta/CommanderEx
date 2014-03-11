@@ -23,8 +23,6 @@
  
  */
 
-#include <EEPROM.h>
-
 //=============================================================================
 // Options
 //=============================================================================
@@ -75,7 +73,6 @@ uint8_t g_fLimitRange = false;
 
 
 #define FRAME_LEN 33         // 30hz
-#define XBEE_HAS_BEEN_INIT  0x01  // Some non-zero non-oxff that says we have been init.
 //=============================================================================
 // Global Variables
 //=============================================================================
@@ -142,10 +139,10 @@ void loop(){
       g_bButtonsPrev = g_bButtons;
       memcpy(&g_abJoyValsPrev, &g_abJoyVals, sizeof(g_abJoyVals)); 
       Serial.print(g_bButtons, HEX);
-      Serial.print(" : ");
+      Serial.print(F(" : "));
       for (i=0; i < NUMANALOGS; i++)  {
         Serial.print((int)g_abJoyVals[i]-128, DEC);
-        Serial.print(" ");
+        Serial.print(F(" "));
       }
       Serial.println(bChksum, DEC);
     }
@@ -283,30 +280,43 @@ void ReadButtons(void)
 
 void InitXBee() 
 {
+  // This may not happen on this Arduino, but on some systems have issue that 
+  // when first powered up XBee comes up in command mode and then you have to wait
+  // for the command mode timeout before it starts to work.  Quick hack, start at 
+  // 9600 baud, output ATCN to exit, then open up at right baud rate. 
   // Verify the XBee is configured properly.  See if we can talk to it at 38400
-  char ab[10];
+  Serial.begin(9600);
+  Serial.println(F("ATCN"));
+  Serial.flush();
+  delay(10);
+  Serial.end();
+
+  // Now open at the real speed. 
   Serial.begin(38400);
 
 #ifdef CHECK_AND_CONFIG_XBEE
-  // First see if we are to bypass the Init code.  Once we sucessfully have
-  // configured the xbee, we write a value to the EEPROM, which we check against
-  // next time.  This keeps us from having to wait several seconds, on later 
-  // uses of the Commander.  But if R1 is pressed duing init, disregard the EEPROM
-  // and check again.
-  if(digitalRead(BUT_R1) != LOW) {
-    if (EEPROM.read(0) == XBEE_HAS_BEEN_INIT)
-      return;  // EEPROM says we have been init.
-  }
-
+  char ab[10];
   while (Serial.read() != -1)
     ;  // flush anything out...
-  delay(2000);
-  Serial.print("+++");
-  Serial.setTimeout(2200);  // little over 2 seconds
+  // First lets see if we have a real short command time
+  delay(10);  // see if we have fast command mode enabled.
+  Serial.print(F("+++")); 
+  Serial.flush();
+  Serial.setTimeout(20);  // give a little extra time
+  if (Serial.readBytesUntil('\r', ab, 10) > 0) {
+    Serial.println(F("ATCN"));	          // and exit command mode
+    return;  // bail out quick
+  }
+  // Else see if maybe properly configured but not quick command mode.
+  delay(1000);
+  Serial.print(F("+++"));
+  Serial.setTimeout(1100);  // little over a second
   if (Serial.readBytesUntil('\r', ab, 10) > 0) {
     // Note: we could check a few more things here if we run into issues.  Like: MY!=0
     // or MY != DL
-    EEPROM.write(0, XBEE_HAS_BEEN_INIT);  // Write to the eeprom that we have been init.
+    Serial.println(F("ATGT 5"));              // Set a quick command mode
+    Serial.println(F("ATWR"));	          // Write out the changes
+    Serial.println(F("ATCN"));	          // and exit command mode
     return;  // It is already at 38400, so assume already init.
   }
   // Failed, so check to see if we can communicate at 9600
@@ -316,31 +326,33 @@ void InitXBee()
     ;  // flush anything out...
 
   delay(2000);
-  Serial.print("+++");
+  Serial.print(F("+++"));
   if (Serial.readBytesUntil('\r', ab, 10) == 0) {
     // failed blink fast
-    for(;;) {
+    for(int i=0;i<50;i++) {
       digitalWrite(USER, !digitalRead(USER));
-      delay(50);
+      delay(100);
     }  // loop forever
+  } 
+  else {
+
+    // So we entered command mode, lets set the appropriate stuff. 
+    Serial.println(F("ATBD 5"));  // 38400
+    Serial.print(F("ATID "));
+    Serial.println(DEFAULT_ID, HEX);
+
+    Serial.print(F("ATMY "));
+    Serial.println(DEFAULT_MY, HEX);
+
+    Serial.println(F("ATDH 0"));
+    Serial.print(F("ATDL "));
+    Serial.println(DEFAULT_DL, HEX);
+
+    Serial.println(F("ATGT 5"));    // Set a quick command mode
+    Serial.println(F("ATWR"));	// Write out the changes
+    Serial.println(F("ATCN"));	// and exit command mode
+    Serial.flush();              // make sure all has been output
   }
-
-  // So we entered command mode, lets set the appropriate stuff. 
-  Serial.println("ATBD 5");  // 38400
-  Serial.print("ATID ");
-  Serial.println(DEFAULT_ID, HEX);
-
-  Serial.print("ATMY ");
-  Serial.println(DEFAULT_MY, HEX);
-
-  Serial.println("ATDH 0");
-  Serial.print("ATDL ");
-  Serial.println(DEFAULT_DL, HEX);
-
-  Serial.println("ATWR");	// Write out the changes
-  Serial.println("ATCN");	// and exit command mode
-  Serial.flush();              // make sure all has been output
-  // lets do a quick and dirty test
   delay(250);  // Wait a bit for responses..
   while(Serial.read() != -1)
     ;   // flush all the input.
@@ -348,6 +360,7 @@ void InitXBee()
   Serial.begin(38400);
 #endif  
 }
+
 
 
 

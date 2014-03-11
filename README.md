@@ -43,11 +43,10 @@ changed.
 #define DEFAULT_ID 0x3332
 ```
 
-As this process can take some time as you must wait the guard time before and after issuing the 
-command request +++, which defaults to two seconds, this can slow down the startup of the program
-a lot.  To minimize this, once I startup once with valid data, I write a byte out to the EEPROM of
-the Commander saying I was initialized, and I bypass this code.  On the off chance you want for it to run
-again, you can hold down the L1 button on the Commander when you turn on the power. 
+The Init code also sets the guard time on the XBee to a very short period (10ms), so that I now
+first try to talk to the XBee using this timeout.  This has removed the need to write stuff out
+to the EEPROM, which my previous version did.  LAs such I no longer need the L1 button test to 
+bypass the bypass... 
 
 Note: Soon I will also introduce the same code in my Phantom_Phoenix project to properly configure
 the XBee on the actual robot as well. 

@@ -20,6 +20,9 @@
  Arduino IDE Configuration:
  
  Mucked with by KurtE to start toward a new version...
+
+ Zenta only changed frame_len so far..
+ Commander 2, select board Arduino Duemilanove or Diecimila, Processor ATmega168 !
  
  */
 
@@ -56,9 +59,9 @@
 
 // These values are used as part of the XBee Configure code and can be changed
 // to whatever values you prefer. 
-#define DEFAULT_MY 0x102  // Swap My/DL on 2nd unit
-#define DEFAULT_DL 0x101
-#define DEFAULT_ID 0x3332
+#define DEFAULT_MY 0x99  // Zenta values
+#define DEFAULT_DL 0x40
+#define DEFAULT_ID 0x1400
 
 static const boolean  g_afAnalogInvert[] = {    // some of our analog values are inverted from what we want
   true,false,true,false};       // Do we use the mid points when we normalize
@@ -72,7 +75,7 @@ uint8_t g_fLimitRange = false;
 #endif  
 
 
-#define FRAME_LEN 33         // 30hz
+#define FRAME_LEN 5         //Zenta 200hz// 30hz
 //=============================================================================
 // Global Variables
 //=============================================================================
